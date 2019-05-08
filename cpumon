@@ -1,0 +1,139 @@
+#! /bin/bash
+
+
+# Functions
+# ----------------------
+_get_raw_system_temps() {
+    paste \
+        <(cat /sys/class/thermal/thermal_zone*/type) \
+        <(cat /sys/class/thermal/thermal_zone*/temp) \
+        | column -s $'\t' -t | sed 's/\(.\)..$/.\1°C/'
+}
+
+get_pch_temp() {
+    local pch_temp=$(grep pch_ <(_get_raw_system_temps))
+    echo $pch_temp | sed -E 's/[a-z_]*\s+//'
+}
+
+get_cpu_temp() {
+    local cpu_temp=$(grep x86_ <(_get_raw_system_temps))
+    echo $cpu_temp | sed -E 's/[a-z_0-9]*\s+//'
+}
+
+get_cpu_model() {
+    local cpu_model=$(lscpu | grep "Model name")
+    echo $cpu_model | grep -oP 'Model name:\K.*' | xargs
+}
+
+get_cpu_physical_cores() {
+    local physical_cores=$(lscpu | grep 'Core(s) per socket')
+    echo $physical_cores | grep -oP 'Core\(s\) per socket:\K.*' | xargs
+}
+
+get_cpu_threads_per_core() {
+    local virtual_cores=$(lscpu | grep 'Thread(s) per core')
+    echo $virtual_cores | grep -oP 'Thread\(s\) per core:\K.*' | xargs
+}
+
+get_cpu_total_cores() {
+    local total_cores=$(lscpu | grep 'CPU(s)' | head -n1)
+    echo $total_cores | grep -oP 'CPU\(s\):\K.*' | xargs
+}
+
+# Print Functions
+# ---
+print_help() {
+    if [[ $1 == '-h' || $1 == '--help' ]]
+    then
+cat <<TEXT
+CPUMon Version: 0.1.0
+----------------------
+https://github.com/cgons/cpumon
+
+Usage:
+    -h --help   Show help documentation.
+    -w          Watch mode: Provide updated CPU freq. and temp. data to console (every second).
+TEXT
+        printf "\n"
+        exit
+    fi
+}
+
+print_version() {
+    if [[ $1 == '-v' || $1 == '--version' ]]
+    then
+cat <<TEXT
+CPUMon Version: 0.1.0
+----------------------
+https://github.com/cgons/cpumon
+TEXT
+        printf "\n"
+        exit
+    fi
+}
+
+print_cpu_info() {
+cat <<TEXT
+     ____ ____  _   _ __  __  ___  _   _
+    / ___|  _ \| | | |  \/  |/ _ \| \ | |
+   | |   | |_) | | | | |\/| | | | |  \| |
+   | |___|  __/| |_| | |  | | |_| | |\  |
+    \____|_|    \___/|_|  |_|\___/|_| \_|
+
+Model:  $(get_cpu_model)
+Cores:  $(get_cpu_total_cores) Total ($(get_cpu_physical_cores) physical)
+------------------------------------------------
+TEXT
+}
+
+print_cpu_freq() {
+    while read x;
+        do freq_list+=($(sed -E 's/.*:\s+//' | xargs));
+    done <<< $(cat /proc/cpuinfo | grep "MHz")
+
+    output=""
+    for idx in "${!freq_list[@]}"
+    do
+        output+="Core #$idx,${freq_list[$idx]} MHz\n"
+    done
+
+    echo -e "\nFrequencies"
+    echo -e "------------------------------------------------"
+    echo -e $output | column -tx -s ','
+    freq_list=()
+}
+
+print_cpu_temps() {
+    echo -e "\nTemps"
+    echo -e "------------------------------------------------"
+    printf "CPU:\t $(get_cpu_temp)\n"
+    printf "PCH:\t $(get_pch_temp)\n"
+}
+
+print_content() {
+    print_cpu_info
+    print_cpu_temps
+    print_cpu_freq
+}
+
+
+# Main
+# ---------------------
+print_help "$@"
+print_version "$@"
+
+# Clear the terminal at exit
+function finish {
+    clear
+}
+trap finish EXIT
+
+
+# Clear the termnal before we output...
+clear
+while true;
+do
+    echo -en "\033[0;0H"
+    print_content
+    sleep 1
+done
